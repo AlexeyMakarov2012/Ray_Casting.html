@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ray Casting</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { background: #000; display: block; }
+        #joystick {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            width: 100px;
+            height: 100px;
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+            touch-action: none;
+        }
+        #joystick-inner {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            background: rgba(0, 0, 255, 0.5);
+            border-radius: 50%;
+            top: 25px;
+            left: 25px;
+            transition: transform 0.1s;
+        }
+        #runButton {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            background-color: rgba(255, 0, 0, 0.7);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #mapCanvas {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: black;
+            border: 1px solid #000;
+        }
+                #info {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            text-align: right;
+        }
+        #info a {
+            color: cyan;
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="mapCanvas" width="200" height="200"></canvas>
+    <canvas id="gameCanvas"></canvas>
+    <div id="joystick">
+        <div id="joystick-inner"></div>
+    </div>
+    <button id="runButton">Бег</button>
+    <div id="info">
+        <div>Сделал Алексей Макаров</div>
+        <a href="https://t.me/XarksWolfern2012/208" target="_blank">https://t.me/XarksWolfern2012</a>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const mapCanvas = document.getElementById('mapCanvas');
+        const mapCtx = mapCanvas.getContext('2d');
+        const tileSize = 50; 
+        const rays = 500; 
+        const rayLength = 1000; 
+        const wallHeight = 10; 
+
+        const mazeWidth = 15; // ширина лабиринта
+        const mazeHeight = 15; // высота лабиринта
+        let maze = generateMaze(mazeWidth, mazeHeight);
+        let finishPoint = { x: (mazeWidth - 2) * tileSize + tileSize / 2, y: (mazeHeight - 2) * tileSize + tileSize / 2 }; // Точка финиша
+
+        function generateMaze(width, height) {
+            const maze = Array.from({ length: height }, () => Array(width).fill('#'));
+            const stack = [];
+            const startX = 1;
+            const startY = 1;
+
+            maze[startY][startX] = '0'; // Стартовая точка
+            stack.push([startX, startY]);
+
+            const directions = [
+                [0, 2], // вниз
+                [2, 0], // вправо
+                [0, -2], // вверх
+                [-2, 0] // влево
+            ];
+
+            while (stack.length > 0) {
+                const [x, y] = stack[stack.length - 1];
+                const neighbors = [];
+
+                for (const [dx, dy] of directions) {
+                    const nx = x + dx;
+                    const ny = y + dy;
+
+                    if (nx > 0 && ny > 0 && nx < width && ny < height && maze[ny][nx] === '#') {
+                        neighbors.push([nx, ny]);
+                    }
+                }
+
+                if (neighbors.length > 0) {
+                    const [nx, ny] = neighbors[Math.floor(Math.random() * neighbors.length)];
+                    maze[(y + ny) / 2][(x + nx) / 2] = '0'; // Создание прохода
+                    maze[ny][nx] = '0'; // Пометить новую ячейку как проходимую
+                    stack.push([nx, ny]);
+                } else {
+                    stack.pop();
+                }
+            }
+
+            return maze;
+        }
+
+        let player = { x: 100, y: 100, angle: 0 }; 
+        let speedMultiplier = 1; 
+        let isRunning = false;
+        const joystick = document.getElementById('joystick');
+        const joystickInner = document.getElementById('joystick-inner');
+        let isMoving = false; 
+        let joystickPosition = { x: 0, y: 0 };
+
+        joystick.addEventListener('touchstart', startTouch);
+        joystick.addEventListener('touchmove', moveTouch);
+        joystick.addEventListener('touchend', endTouch);
+
+        document.getElementById('runButton').addEventListener('click', () => {
+            isRunning = !isRunning;
+            speedMultiplier = isRunning ? 2 : 1;
+            document.getElementById('runButton').innerText = isRunning ? 'Остановить бег' : 'Бег';
+        });
+
+        function startTouch(e) {
+            e.preventDefault();
+            isMoving = true; 
+            moveTouch(e);
+            requestAnimationFrame(movePlayer); 
+        }
+
+        function moveTouch(e) {
+            const touch = e.touches[0];
+            const rect = joystick.getBoundingClientRect();
+            joystickPosition.x = touch.clientX - (rect.left + rect.width / 2);
+            joystickPosition.y = touch.clientY - (rect.top + rect.height / 2);
+            const distance = Math.min(Math.sqrt(joystickPosition.x * joystickPosition.x + joystickPosition.y * joystickPosition.y), 50);
+            joystickInner.style.transform = `translate(${Math.cos(Math.atan2(joystickPosition.y, joystickPosition.x)) * distance}px, ${Math.sin(Math.atan2(joystickPosition.y, joystickPosition.x)) * distance}px)`;
+        }
+
+        function movePlayer() {
+            if (isMoving) {
+                const turnSpeed = 0.05; 
+                const forwardSpeed = 2 * speedMultiplier;
+
+                if (Math.abs(joystickPosition.x) > Math.abs(joystickPosition.y)) {
+                    if (joystickPosition.x < 0) {
+                        player.angle -= turnSpeed; 
+                    } else {
+                        player.angle += turnSpeed; 
+                    }
+                } else {
+                    const newX = player.x + (joystickPosition.y < 0 ? 1 : -1) * Math.cos(player.angle) * forwardSpeed;
+                    const newY = player.y + (joystickPosition.y < 0 ? 1 : -1) * Math.sin(player.angle) * forwardSpeed;
+                    if (!checkCollision(newX, newY)) {
+                        player.x = newX;
+                        player.y = newY;
+                    }
+                }
+
+                // Проверка на достижение финиша
+                if (Math.abs(player.x - finishPoint.x) < 10 && Math.abs(player.y - finishPoint.y) < 10) {
+                    resetGame(); // Перезапуск игры
+                }
+
+                draw();
+                drawMap();
+                requestAnimationFrame(movePlayer); 
+            }
+        }
+
+        function endTouch() {
+            joystickInner.style.transform = 'translate(0, 0)';
+            isMoving = false; 
+            joystickPosition = { x: 0, y: 0 }; 
+        }
+
+        function checkCollision(x, y) {
+            const mazeX = Math.floor(x / tileSize);
+            const mazeY = Math.floor(y / tileSize);
+            return mazeY < 0 || mazeY >= maze.length || mazeX < 0 || mazeX >= maze[0].length || maze[mazeY][mazeX] === '#';
+        }
+
+        function resetGame() {
+            player.x = 100; // Начальная позиция игрока
+            player.y = 100;
+            maze = generateMaze(mazeWidth, mazeHeight); // Генерация нового лабиринта
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'black'; 
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, 10, 0, Math.PI * 2);
+            ctx.fill();
+
+            const stripWidth = canvas.width / rays;
+
+            for (let i = 0; i < rays; i++) {
+                const rayAngle = player.angle + (i - (rays / 2)) * 0.005; 
+                let rayX = player.x;
+                let rayY = player.y;
+                let distanceToWall = rayLength; 
+                let hitWall = false; 
+
+                for (let j = 0; j < rayLength; j++) {
+                    rayX = player.x + Math.cos(rayAngle) * j;
+                    rayY = player.y + Math.sin(rayAngle) * j;
+
+                    const mazeX = Math.floor(rayX / tileSize);
+                    const mazeY = Math.floor(rayY / tileSize);
+
+                    if (mazeY >= 0 && mazeY < maze.length && mazeX >= 0 && mazeX < maze[0].length && maze[mazeY][mazeX] === '#') {
+                        distanceToWall = j;
+                        hitWall = true; 
+                        break;
+                    }
+                }
+
+                const projectedHeight = wallHeight / (distanceToWall / rayLength);
+                const brightness = Math.max(0.2, 1 - (distanceToWall / rayLength));
+
+                ctx.fillStyle = hitWall ? `rgba(0, 255, 0, ${brightness})` : `rgba(255, 255, 255, ${brightness})`; 
+                ctx.fillRect(i * stripWidth, (canvas.height - projectedHeight) / 2, stripWidth, projectedHeight);
+
+                if (hitWall) {
+                    const plinthBrightness = Math.max(0.2, 1 - (distanceToWall / rayLength)); 
+                    ctx.fillStyle = `rgba(0, 85, 0, ${plinthBrightness})`; 
+                    ctx.fillRect(i * stripWidth, (canvas.height - projectedHeight) / 2 + projectedHeight, stripWidth, 20);
+                }
+            }
+        }
+
+        function drawMap() {
+            mapCtx.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
+            mapCtx.fillStyle = 'black'; 
+            mapCtx.fillRect(0, 0, mapCanvas.width, mapCanvas.height);
+
+            for (let y = 0; y < maze.length; y++) {
+                for (let x = 0; x < maze[y].length; x++) {
+                    if (maze[y][x] === '#') {
+                        mapCtx.fillStyle = 'green';
+                        mapCtx.fillRect(x * (mapCanvas.width / maze[0].length), y * (mapCanvas.height / maze.length), (mapCanvas.width / maze[0].length), (mapCanvas.height / maze.length));
+                    }
+                }
+            }
+
+            const mapPlayerX = player.x * (mapCanvas.width / (maze[0].length * tileSize));
+            const mapPlayerY = player.y * (mapCanvas.height / (maze.length * tileSize));
+            mapCtx.fillStyle = 'red';
+            mapCtx.beginPath();
+            mapCtx.arc(mapPlayerX, mapPlayerY, 5, 0, Math.PI * 2);
+            mapCtx.fill();
+
+            // Отображение точки финиша
+            const mapFinishX = finishPoint.x * (mapCanvas.width / (maze[0].length * tileSize));
+            const mapFinishY = finishPoint.y * (mapCanvas.height / (maze.length * tileSize));
+            mapCtx.fillStyle = 'yellow';
+            mapCtx.beginPath();
+            mapCtx.arc(mapFinishX, mapFinishY, 5, 0, Math.PI * 2);
+            mapCtx.fill();
+
+            for (let i = 0; i < rays; i++) {
+                const rayAngle = player.angle + (i - (rays / 2)) * 0.005; 
+                let rayX = player.x;
+                let rayY = player.y;
+                let distanceToWall = rayLength; 
+
+                for (let j = 0; j < rayLength; j++) {
+                    rayX = player.x + Math.cos(rayAngle) * j;
+                    rayY = player.y + Math.sin(rayAngle) * j;
+
+                    const mazeX = Math.floor(rayX / tileSize);
+                    const mazeY = Math.floor(rayY / tileSize);
+
+                    if (mazeY >= 0 && mazeY < maze.length && mazeX >= 0 && mazeX < maze[0].length && maze[mazeY][mazeX] === '#') {
+                        distanceToWall = j;
+                        break;
+                    }
+                }
+
+                const mapRayX = rayX * (mapCanvas.width / (maze[0].length * tileSize));
+                const mapRayY = rayY * (mapCanvas.height / (maze.length * tileSize));
+                mapCtx.strokeStyle = 'white'; 
+                mapCtx.beginPath();
+                mapCtx.moveTo(mapPlayerX, mapPlayerY);
+                mapCtx.lineTo(mapRayX, mapRayY);
+                mapCtx.stroke();
+            }
+        }
+
+        draw();
+        drawMap();
+    </script>
+</body>
+</html>
